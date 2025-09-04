@@ -1,3 +1,0 @@
-/home/gew/work/RealTime-AV-Player/build/install/bin/RealTimeAVPlayer
-/home/gew/work/RealTime-AV-Player/build/install/assets/trump.mp4
-/home/gew/work/RealTime-AV-Player/build/install/lib/libRealTimeAVPlayerLib.so
