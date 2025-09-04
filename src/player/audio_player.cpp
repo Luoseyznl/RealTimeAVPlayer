@@ -163,26 +163,32 @@ void AudioPlayer::fillAudioData(uint8_t* stream, int len) {
     }
 
     int bytes_to_fill = total_bytes_needed - total_bytes_filled;
-    size_t bytes_available =
-        popPCMData(stream + total_bytes_filled, bytes_to_fill);
+    // 从环形缓冲先读入临时缓冲，再根据当前音量写入/混音到输出 buffer
+    std::vector<uint8_t> tmp_buf(bytes_to_fill);
+    size_t bytes_available = popPCMData(tmp_buf.data(), bytes_to_fill);
     LOG_DEBUG << "popPCMData got " << bytes_available << " bytes";
     if (bytes_available == 0) {
       break;
     }
 
-    total_bytes_filled += bytes_available;
+    int vol = volume_.load(std::memory_order_acquire);
+    if (vol <= 0) {
+      // 音量为 0，保持目标区域为静音（已 memset 为 0），无需写入
+    } else if (vol >= SDL_MIX_MAXVOLUME) {
+      // 最大音量，直接复制到目标输出区
+      std::memcpy(stream + total_bytes_filled, tmp_buf.data(), bytes_available);
+    } else {
+      // 非 0 非满，安全地将 src(tmp_buf) 混音到目标区 (dst 初始为0)
+      SDL_MixAudioFormat(stream + total_bytes_filled, tmp_buf.data(),
+                         AUDIO_S16SYS, static_cast<Uint32>(bytes_available),
+                         vol);
+    }
+
+    total_bytes_filled += static_cast<int>(bytes_available);
     consumed_samples_ += bytes_available / bytes_per_frame;
     int64_t base = base_pts_.load(std::memory_order_acquire);  // 获取基准时间戳
     audio_clock_.store(base + (consumed_samples_ * AV_TIME_BASE) / sample_rate_,
                        std::memory_order_release);
-  }
-
-  // 用 SDL_MixAudioFormat 做音量缩放
-  int vol = volume_.load(std::memory_order_acquire);
-  if (vol < SDL_MIX_MAXVOLUME && total_bytes_filled > 0) {
-    std::vector<uint8_t> tmp(stream, stream + total_bytes_filled);
-    SDL_MixAudioFormat(stream, tmp.data(), AUDIO_S16SYS, total_bytes_filled,
-                       vol);
   }
 }
 
